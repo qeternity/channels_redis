@@ -54,12 +54,13 @@ class ConnectionPool:
         self.conn_map = {}
         self.sentinel_map = {}
 
-    async def create_pool(self, loop):
+    async def _create_pool(self, loop):
         kwargs = {**self.host, "minsize": 1, "maxsize": 999999999}
         if sys.version_info >= (3, 8, 0) and AIOREDIS_VERSION >= (1, 3, 1):
             kwargs["loop"] = loop
+        conn = None
         if self.master_name is None:
-            return await aioredis.create_redis_pool(**kwargs)
+            conn = await aioredis.create_redis_pool(**kwargs)
         else:
             sentinel = await aioredis.sentinel.create_sentinel(**kwargs)
             conn = sentinel.master_for(self.master_name)
@@ -88,7 +89,7 @@ class ConnectionPool:
         """
         conn, loop = self._ensure_loop(loop)
         if conn is None:
-            conn = await self.create_pool(loop)
+            conn = await self._create_pool(loop)
         return conn
 
     def push(self, conn):

@@ -4,6 +4,7 @@ on:
   push:
    branches:
    - master
+   - aioredis-pools-tests
   pull_request:
 
 jobs:
