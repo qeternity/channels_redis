@@ -52,7 +52,6 @@ class ConnectionPool:
         self.master_name = self.host.pop("master_name", None)
         self.conn_map = {}
         self.sentinel_map = {}
-        self.in_use = {}
 
     def _ensure_loop(self, loop):
         """
@@ -65,7 +64,7 @@ class ConnectionPool:
             # Swap the loop's close method with our own so we get
             # a chance to do some cleanup.
             _wrap_close(loop, self)
-            self.conn_map[loop] = []
+            self.conn_map[loop] = None
 
         return self.conn_map[loop], loop
 
@@ -85,36 +84,17 @@ class ConnectionPool:
         """
         Get a connection for the given identifier and loop.
         """
-        conns, loop = self._ensure_loop(loop)
-        if not conns:
+        conn, loop = self._ensure_loop(loop)
+        if conn is None:
             conn = await self.create_conn(loop)
-            conns.append(conn)
-        conn = conns.pop()
-        if conn.closed:
-            conn = await self.pop(loop=loop)
-            return conn
-        self.in_use[conn] = loop
+            self.conn_map[loop] = conn
         return conn
 
     def push(self, conn):
-        """
-        Return a connection to the pool.
-        """
-        loop = self.in_use[conn]
-        del self.in_use[conn]
-        if loop is not None:
-            conns, _ = self._ensure_loop(loop)
-            conns.append(conn)
+        pass
 
     def conn_error(self, conn):
-        """
-        Handle a connection that produced an error.
-        """
-        conn.close()
-        if conn in self.sentinel_map:
-            self.sentinel_map[conn].close()
-            del self.sentinel_map[conn]
-        del self.in_use[conn]
+        pass
 
     def reset(self):
         """
@@ -122,7 +102,28 @@ class ConnectionPool:
         """
         self.conn_map = {}
         self.sentinel_map = {}
-        self.in_use = {}
+
+    async def _close_conn(self, conn, sentinel_map=None):
+        if sentinel_map is None:
+            sentinel_map = self.sentinel_map
+        if conn in sentinel_map:
+            sentinel_map[conn].close()
+            await sentinel_map[conn].wait_closed()
+            del sentinel_map[conn]
+        else:
+            conn.close()
+            await conn.wait_closed()
+
+    async def _close_conn(self, conn, sentinel_map=None):
+        if sentinel_map is None:
+            sentinel_map = self.sentinel_map
+        if conn in sentinel_map:
+            sentinel_map[conn].close()
+            await sentinel_map[conn].wait_closed()
+            del sentinel_map[conn]
+        else:
+            conn.close()
+            await conn.wait_closed()
 
     async def _close_conn(self, conn, sentinel_map=None):
         if sentinel_map is None:
@@ -140,14 +141,8 @@ class ConnectionPool:
         Close all connections owned by the pool on the given loop.
         """
         if loop in self.conn_map:
-            for conn in self.conn_map[loop]:
-                await self._close_conn(conn)
+            await self._close_conn(self.conn_map[loop])
             del self.conn_map[loop]
-
-        for k, v in self.in_use.items():
-            if v is loop:
-                await self._close_conn(k)
-                self.in_use[k] = None
 
     async def close(self):
         """
@@ -155,13 +150,10 @@ class ConnectionPool:
         """
         conn_map = self.conn_map
         sentinel_map = self.sentinel_map
-        in_use = self.in_use
         self.reset()
         for conns in conn_map.values():
             for conn in conns:
                 await self._close_conn(conn, sentinel_map)
-        for conn in in_use:
-            await self._close_conn(conn, sentinel_map)
 
 
 class ChannelLock:
