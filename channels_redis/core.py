@@ -52,7 +52,7 @@ class ConnectionPool:
         self.master_name = self.host.pop("master_name", None)
         self.conn_map = {}
         self.sentinel_map = {}
-        self.in_use = {}
+        self.lock_map = {}
 
     def _ensure_loop(self, loop):
         """
@@ -65,57 +65,40 @@ class ConnectionPool:
             # Swap the loop's close method with our own so we get
             # a chance to do some cleanup.
             _wrap_close(loop, self)
-            self.conn_map[loop] = []
+            self.conn_map[loop] = None
+            self.lock_map[loop] = asyncio.Lock()
 
-        return self.conn_map[loop], loop
+        return self.conn_map[loop], loop, self.lock_map[loop]
 
-    async def create_conn(self, loop):
-        kwargs = {"minsize": 1, "maxsize": 100, **self.host}
+    async def _ensure_conn(self, loop):
+        if self.conn_map[loop] is not None:
+            return  # don't override pools that exist
+        kwargs = {"minsize": 1, "maxsize": 999999, **self.host}
         if not (sys.version_info >= (3, 8, 0) and AIOREDIS_VERSION >= (1, 3, 1)):
             kwargs["loop"] = loop
         if self.master_name is None:
-            return await aioredis.create_redis_pool(**kwargs)
+            conn = await aioredis.create_redis_pool(**kwargs)
         else:
             kwargs = {"timeout": 2, **kwargs}  # aioredis default is way too low
             sentinel = await aioredis.sentinel.create_sentinel(**kwargs)
             conn = sentinel.master_for(self.master_name)
             self.sentinel_map[conn] = sentinel
-            return conn
+        self.conn_map[loop] = conn
+        return conn
 
     async def pop(self, loop=None):
         """
         Get a connection for the given identifier and loop.
         """
-        conns, loop = self._ensure_loop(loop)
-        if not conns:
-            conn = await self.create_conn(loop)
-            conns.append(conn)
-        conn = conns.pop()
-        if conn.closed:
-            conn = await self.pop(loop=loop)
-            return conn
-        self.in_use[conn] = loop
+        conn, loop, lock = self._ensure_loop(loop)
+        lock = asyncio.Lock()
+        if conn is None:
+            await lock.acquire()
+            try:
+                conn = await self._ensure_conn(loop)
+            finally:
+                lock.release()
         return conn
-
-    def push(self, conn):
-        """
-        Return a connection to the pool.
-        """
-        loop = self.in_use[conn]
-        del self.in_use[conn]
-        if loop is not None:
-            conns, _ = self._ensure_loop(loop)
-            conns.append(conn)
-
-    def conn_error(self, conn):
-        """
-        Handle a connection that produced an error.
-        """
-        conn.close()
-        if conn in self.sentinel_map:
-            self.sentinel_map[conn].close()
-            del self.sentinel_map[conn]
-        del self.in_use[conn]
 
     def reset(self):
         """
@@ -123,7 +106,7 @@ class ConnectionPool:
         """
         self.conn_map = {}
         self.sentinel_map = {}
-        self.in_use = {}
+        self.lock_map = {}
 
     async def _close_conn(self, conn, sentinel_map=None):
         if sentinel_map is None:
@@ -144,11 +127,7 @@ class ConnectionPool:
             for conn in self.conn_map[loop]:
                 await self._close_conn(conn)
             del self.conn_map[loop]
-
-        for k, v in self.in_use.items():
-            if v is loop:
-                await self._close_conn(k)
-                self.in_use[k] = None
+            del self.lock_map[loop]
 
     async def close(self):
         """
@@ -156,13 +135,10 @@ class ConnectionPool:
         """
         conn_map = self.conn_map
         sentinel_map = self.sentinel_map
-        in_use = self.in_use
         self.reset()
         for conns in conn_map.values():
             for conn in conns:
                 await self._close_conn(conn, sentinel_map)
-        for conn in in_use:
-            await self._close_conn(conn, sentinel_map)
 
 
 class ChannelLock:
@@ -910,12 +886,7 @@ class RedisChannelLayer(BaseChannelLayer):
             self.pool = pool
 
         async def __aenter__(self):
-            self.conn = await self.pool.pop()
-            return self.conn
+            return await self.pool.pop()
 
         async def __aexit__(self, exc_type, exc, tb):
-            if exc:
-                self.pool.conn_error(self.conn)
-            else:
-                self.pool.push(self.conn)
-            self.conn = None
+            pass
