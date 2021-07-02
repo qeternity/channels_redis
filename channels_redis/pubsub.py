@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import types
 import uuid
 
 import aioredis
@@ -8,7 +9,57 @@ import msgpack
 logger = logging.getLogger(__name__)
 
 
+def _wrap_close(proxy, loop):
+    original_impl = loop.close
+
+    def _wrapper(self, *args, **kwargs):
+        if proxy._has_layer(loop):
+            self.run_until_complete(proxy._get_layer(loop).flush())
+            proxy._del_layer(loop)
+        self.close = original_impl
+        return self.close(*args, **kwargs)
+
+    loop.close = types.MethodType(_wrapper, loop)
+
+
 class RedisPubSubChannelLayer:
+    _args = None
+    _kwargs = None
+    _layers = None
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._args = args
+        self._kwargs = kwargs
+        self._layers = {}
+
+    def __getattr__(self, name):
+        print(len(self._layers.keys()))
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        if not self._has_layer(loop):
+            self._set_layer(loop, RedisPubSubLoopLayer(*self._args, **self._kwargs))
+            _wrap_close(self, loop)
+
+        return getattr(self._get_layer(loop), name)
+
+    def _has_layer(self, loop):
+        return hash(loop) in self._layers
+
+    def _get_layer(self, loop):
+        return self._layers[hash(loop)]
+
+    def _set_layer(self, loop, layer):
+        self._layers[hash(loop)] = layer
+
+    def _del_layer(self, loop):
+        del self._layers[hash(loop)]
+
+
+class RedisPubSubLoopLayer:
     """
     Channel Layer that uses Redis's pub/sub functionality.
     """
