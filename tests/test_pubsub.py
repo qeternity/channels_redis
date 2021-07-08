@@ -1,3 +1,4 @@
+import asgiref
 import asyncio
 import random
 
@@ -33,6 +34,10 @@ async def test_send_receive(channel_layer):
     assert message["text"] == "Ahoy-hoy!"
 
 
+def test_send_receive_sync(channel_layer):
+    asgiref.sync.async_to_sync(test_send_receive)(channel_layer)
+
+
 @pytest.mark.asyncio
 async def test_multi_send_receive(channel_layer):
     """
@@ -45,6 +50,10 @@ async def test_multi_send_receive(channel_layer):
     assert (await channel_layer.receive(channel))["type"] == "message.1"
     assert (await channel_layer.receive(channel))["type"] == "message.2"
     assert (await channel_layer.receive(channel))["type"] == "message.3"
+
+
+def test_multi_send_receive_sync(channel_layer):
+    asgiref.sync.async_to_sync(test_multi_send_receive)(channel_layer)
 
 
 @pytest.mark.asyncio
