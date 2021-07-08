@@ -5,7 +5,7 @@ import async_timeout
 import pytest
 from async_generator import async_generator, yield_
 
-import asgiref
+from asgiref.sync import async_to_sync
 from channels_redis.pubsub import RedisPubSubChannelLayer
 
 TEST_HOSTS = [("localhost", 6379)]
@@ -35,7 +35,7 @@ async def test_send_receive(channel_layer):
 
 
 def test_send_receive_sync(channel_layer):
-    asgiref.sync.async_to_sync(test_send_receive)(channel_layer)
+    async_to_sync(test_send_receive)(channel_layer)
 
 
 @pytest.mark.asyncio
@@ -53,7 +53,7 @@ async def test_multi_send_receive(channel_layer):
 
 
 def test_multi_send_receive_sync(channel_layer):
-    asgiref.sync.async_to_sync(test_multi_send_receive)(channel_layer)
+    async_to_sync(test_multi_send_receive)(channel_layer)
 
 
 @pytest.mark.asyncio
@@ -110,3 +110,8 @@ async def test_random_reset__channel_name(channel_layer):
     channel_name_2 = await channel_layer.new_channel()
 
     assert channel_name_1 != channel_name_2
+
+def test_multi_event_loop_garbage_collection(channel_layer):
+    assert len(channel_layer._layers.values()) == 0
+    async_to_sync(test_send_receive)(channel_layer)
+    assert len(channel_layer._layers.values()) == 0
