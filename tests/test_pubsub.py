@@ -43,7 +43,7 @@ def test_send_receive_multi(channel_layer):
     channel = receive_loop.run_until_complete(channel_layer.new_channel())
     fut = asyncio.ensure_future(channel_layer.receive(channel), loop=receive_loop)
 
-    async_to_sync(channel_layer.send)(channel, {"type": "test.message", "text": "Ahoy-hoy!"})
+    async_to_sync(channel_layer.send, force_new_loop=True)(channel, {"type": "test.message", "text": "Ahoy-hoy!"})
 
     message = fut.result()
     assert message["type"] == "test.message"
