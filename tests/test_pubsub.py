@@ -32,6 +32,7 @@ async def test_send_receive(channel_layer):
     message = await channel_layer.receive(channel)
     assert message["type"] == "test.message"
     assert message["text"] == "Ahoy-hoy!"
+    assert 1 == 2
 
 
 def test_send_receive_sync(channel_layer):
@@ -110,6 +111,7 @@ async def test_random_reset__channel_name(channel_layer):
     channel_name_2 = await channel_layer.new_channel()
 
     assert channel_name_1 != channel_name_2
+
 
 def test_multi_event_loop_garbage_collection(channel_layer):
     assert len(channel_layer._layers.values()) == 0
