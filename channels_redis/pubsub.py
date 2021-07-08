@@ -1,5 +1,4 @@
 import asyncio
-import functools
 import logging
 import sys
 import types
@@ -48,7 +47,7 @@ class RedisPubSubChannelLayer:
             "group_send",
             "flush",
         ):
-            return functools.partial(self._proxy, name)
+            return self._proxy(name)
         else:
             return getattr(self._get_layer(), name)
 
@@ -64,12 +63,12 @@ class RedisPubSubChannelLayer:
 
         return layer
 
-    def _proxy(self, name, *args, **kwargs):
-        async def coro():
+    def _proxy(self, name):
+        async def coro(*args, **kwargs):
             layer = self._get_layer()
             return await getattr(layer, name)(*args, **kwargs)
 
-        return coro()
+        return coro
 
 
 class RedisPubSubLoopLayer:
