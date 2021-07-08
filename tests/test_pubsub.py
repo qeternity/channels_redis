@@ -32,7 +32,6 @@ async def test_send_receive(channel_layer):
     message = await channel_layer.receive(channel)
     assert message["type"] == "test.message"
     assert message["text"] == "Ahoy-hoy!"
-    assert 1 == 2
 
 
 def test_send_receive_sync(channel_layer):
@@ -80,6 +79,10 @@ async def test_groups_basic(channel_layer):
             await channel_layer.receive(channel_name2)
 
 
+def test_groups_basic_sync(channel_layer):
+    async_to_sync(test_groups_basic)(channel_layer)
+
+
 @pytest.mark.asyncio
 async def test_groups_same_prefix(channel_layer):
     """
@@ -100,6 +103,10 @@ async def test_groups_same_prefix(channel_layer):
         assert (await channel_layer.receive(channel_name3))["type"] == "message.1"
 
 
+def test_groups_same_prefix_sync(channel_layer):
+    async_to_sync(test_groups_same_prefix)(channel_layer)
+
+
 @pytest.mark.asyncio
 async def test_random_reset__channel_name(channel_layer):
     """
@@ -113,7 +120,14 @@ async def test_random_reset__channel_name(channel_layer):
     assert channel_name_1 != channel_name_2
 
 
+def test_random_reset__channel_name_sync(channel_layer):
+    async_to_sync(test_random_reset__channel_name)(channel_layer)
+
+
 def test_multi_event_loop_garbage_collection(channel_layer):
+    """
+    Test loop closure layer flushing and garbage collection
+    """
     assert len(channel_layer._layers.values()) == 0
     async_to_sync(test_send_receive)(channel_layer)
     assert len(channel_layer._layers.values()) == 0
