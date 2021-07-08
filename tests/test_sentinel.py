@@ -63,7 +63,7 @@ async def channel_layer():
     """
     channel_layer = RedisChannelLayer(
         hosts=TEST_HOSTS,
-        capacity=3,
+        capacity=10,
         channel_capacity={"tiny": 1},
     )
     await yield_(channel_layer)
