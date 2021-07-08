@@ -1,4 +1,3 @@
-import asgiref
 import asyncio
 import random
 
@@ -6,6 +5,7 @@ import async_timeout
 import pytest
 from async_generator import async_generator, yield_
 
+import asgiref
 from channels_redis.pubsub import RedisPubSubChannelLayer
 
 TEST_HOSTS = [("localhost", 6379)]
